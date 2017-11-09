@@ -30,7 +30,8 @@ class NaiveBayesResNet(nn.Module):
 
     def forward(self, x):
         out = self.resnet(x)
-        return self.naive_bayes(out)
+        out = self.naive_bayes(out)
+        return out
 
 parser = argparse.ArgumentParser()
 # parser.add_argument("--model", metavar="NAME",
@@ -51,6 +52,10 @@ parser.add_argument("--weight-decay", default=1e-4, type=float,
                     help="weight decay factor")
 parser.add_argument("--stats", action="store_true",
                     help="record and plot some stats")
+parser.add_argument("--trainer", action="store_true", default=False,
+                    help="should we use the outputs of a pretrained network for training")
+parser.add_argument("--loss", default="NLLLoss",
+                    help="which loss function to use")
 
 
 # Check if CUDA is avaliable
@@ -82,7 +87,13 @@ def main():
     if args.load is not None:
         load(model, args.load)
 
-    criterion = nn.NLLLoss()
+    if args.trainer:
+        # Load trainer, wherever it may come from
+        trainer = None
+    else:
+        trainer = None
+
+    criterion = getattr(nn, args.loss)()
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr*10,
                           momentum=0.9, weight_decay=args.weight_decay)
@@ -139,7 +150,7 @@ def main():
     for epoch in range(args.epochs):
         scheduler.step()
         loss, train_acc = train(epoch, model, criterion, optimizer,
-                                trainloader, args.clip)
+                                trainloader, args.clip, trainer)
         val_acc = validate(model, valloader)
 
         if val_acc > best_acc:
@@ -171,7 +182,7 @@ def main():
                 f.write('{}\n'.format(i))
 
 
-def train(epoch, model, criterion, optimizer, trainloader, clip):
+def train(epoch, model, criterion, optimizer, trainloader, clip, trainer):
     model.train()
     train_loss = 0
     correct = 0
@@ -184,6 +195,9 @@ def train(epoch, model, criterion, optimizer, trainloader, clip):
             inputs, labels = inputs.cuda(), labels.cuda()
 
         inputs, labels = Variable(inputs), Variable(labels)
+
+        if trainer is not None:
+            labels = trainer(inputs)
 
         optimizer.zero_grad()
 
