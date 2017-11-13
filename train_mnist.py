@@ -76,7 +76,7 @@ def main():
 
     model = NaiveBayesNet()
 
-    exp_id = "cifar_{0}_{1:%Y-%m-%d}_{1:%H-%M-%S}".format(model.name,
+    exp_id = "mnist_{0}_{1:%Y-%m-%d}_{1:%H-%M-%S}".format(model.name,
                                                           datetime.now())
 
     path = os.path.join("./experiments/", exp_id, "cmd.sh")
@@ -103,7 +103,7 @@ def main():
     optimizer = optim.SGD(model.parameters(), lr=args.lr*10,
                           momentum=0.9, weight_decay=args.weight_decay)
 
-    scheduler = StepLR(optimizer, step_size=50, gamma=0.1)
+    scheduler = StepLR(optimizer, step_size=args.epochs//3, gamma=0.1)
 
     print("Prepairing data...")
 
@@ -258,7 +258,7 @@ def load(model, path):
 def save_checkpoint(model, exp_id):
     path = os.path.join(
         "experiments", exp_id, "checkpoints",
-        "cifar_{0}_{1:%Y-%m-%d}_{1:%H-%M-%S}.dat".format(model.name,
+        "mnist_{0}_{1:%Y-%m-%d}_{1:%H-%M-%S}.dat".format(model.name,
                                                          datetime.now()))
     if not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
