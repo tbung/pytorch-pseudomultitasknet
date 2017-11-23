@@ -18,7 +18,7 @@ from torch.autograd import Variable
 from torch.optim.lr_scheduler import StepLR
 
 import models
-from naive_bayes import GaussianNaiveBayes
+from modules.naive_bayes import GaussianNaiveBayes
 
 class NaiveBayesResNet(nn.Module):
     def __init__(self):
@@ -27,11 +27,13 @@ class NaiveBayesResNet(nn.Module):
 
         self.resnet = models.resnet32()
         self.naive_bayes = GaussianNaiveBayes(10,10)
+        self.softmax  = nn.LogSoftmax(dim=0)
 
     def forward(self, x):
         out = self.resnet(x)
-        out = self.naive_bayes(out)
-        return out
+        prob_nb = torch.exp(self.naive_bayes(out))
+        prob_sm = torch.exp(self.softmax(out))
+        return torch.log(0.5*(prob_nb + prob_sm))
 
 parser = argparse.ArgumentParser()
 # parser.add_argument("--model", metavar="NAME",
@@ -152,6 +154,7 @@ def main():
         loss, train_acc = train(epoch, model, criterion, optimizer,
                                 trainloader, args.clip, trainer)
         val_acc = validate(model, valloader)
+        print(model.naive_bayes.means)
 
         if val_acc > best_acc:
             best_acc = val_acc

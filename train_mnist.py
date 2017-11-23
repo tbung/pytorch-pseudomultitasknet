@@ -5,6 +5,7 @@ import sys
 import argparse
 
 from tqdm import tqdm
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -16,7 +17,7 @@ import torchvision.transforms as transforms
 from torch.autograd import Variable
 from torch.optim.lr_scheduler import StepLR
 
-from naive_bayes import GaussianNaiveBayes
+from modules.naive_bayes import GaussianNaiveBayes
 
 class NaiveBayesNet(nn.Module):
     def __init__(self):
@@ -28,6 +29,7 @@ class NaiveBayesNet(nn.Module):
         self.fc1 = nn.Linear(320, 50)
         self.fc2 = nn.Linear(50, 10)
         self.nb  = GaussianNaiveBayes(10,10)
+        self.sm  = nn.LogSoftmax(dim=0)
 
     def forward(self, x):
         x = F.relu(F.max_pool2d(self.conv1(x), 2))
@@ -36,7 +38,9 @@ class NaiveBayesNet(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.dropout(x, training=self.training)
         x = self.fc2(x)
-        return self.nb(x)
+        prob_nb = torch.exp(self.nb(x))
+        prob_sm = torch.exp(self.sm(x))
+        return torch.log(0.5*(prob_nb + prob_sm))
 
 parser = argparse.ArgumentParser()
 # parser.add_argument("--model", metavar="NAME",
@@ -204,6 +208,8 @@ def train(epoch, model, criterion, optimizer, trainloader, clip, trainer):
 
         outputs = model(inputs)
         loss = criterion(outputs, labels)
+        if np.isnan(loss.data[0]):
+            raise ValueError("NaN Loss")
         loss.backward()
 
         # Free the memory used to store activations
