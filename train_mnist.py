@@ -18,6 +18,7 @@ from torch.autograd import Variable
 from torch.optim.lr_scheduler import StepLR
 
 from modules.naive_bayes import GaussianNaiveBayes
+from modules.reversible import ReversibleMultiTaskNet
 
 class NaiveBayesNet(nn.Module):
     def __init__(self):
@@ -49,9 +50,9 @@ parser.add_argument("--load", metavar="PATH",
                     help="load a previous model state")
 parser.add_argument("-e", "--evaluate", action="store_true",
                     help="evaluate model on validation set")
-parser.add_argument("--batch-size", default=64, type=int,
+parser.add_argument("--batch-size", default=256, type=int,
                     help="size of the mini-batches")
-parser.add_argument("--epochs", default=10, type=int,
+parser.add_argument("--epochs", default=50, type=int,
                     help="number of epochs")
 parser.add_argument("--lr", default=0.1, type=float,
                     help="initial learning rate")
@@ -78,7 +79,7 @@ def main():
 
     args = parser.parse_args()
 
-    model = NaiveBayesNet()
+    model = ReversibleMultiTaskNet()
 
     exp_id = "mnist_{0}_{1:%Y-%m-%d}_{1:%H-%M-%S}".format(model.name,
                                                           datetime.now())
@@ -186,6 +187,8 @@ def main():
             for i in vaccs:
                 f.write('{}\n'.format(i))
 
+    return model
+
 
 def train(epoch, model, criterion, optimizer, trainloader, clip, trainer):
     model.train()
@@ -207,21 +210,23 @@ def train(epoch, model, criterion, optimizer, trainloader, clip, trainer):
         optimizer.zero_grad()
 
         outputs = model(inputs)
-        loss = criterion(outputs, labels)
+        likelihoods = torch.log((outputs[0]+outputs[1]+outputs[2])/3)
+        disagreement = torch.sum(torch.abs(outputs[0] - outputs[1]))
+
+        loss =  criterion(likelihoods, labels) + 1*disagreement
         if np.isnan(loss.data[0]):
             raise ValueError("NaN Loss")
         loss.backward()
 
         # Free the memory used to store activations
-        # if type(model) is revnet.RevNet:
-        #     model.free()
+        model.free()
 
         if clip > 0:
             torch.nn.utils.clip_grad_norm(model.parameters(), clip)
         optimizer.step()
 
         train_loss += loss.data[0]
-        _, predicted = torch.max(outputs.data, 1)
+        _, predicted = torch.max(likelihoods.data, 1)
         total += labels.size(0)
         correct += predicted.eq(labels.data).cpu().sum()
         acc = 100 * correct / total
@@ -243,12 +248,12 @@ def validate(model, valloader):
         if CUDA:
             images, labels = images.cuda(), labels.cuda()
         outputs = model(Variable(images))
+        likelihoods = torch.log((outputs[0]+outputs[1]+outputs[2])/3)
 
         # Free the memory used to store activations
-        # if type(model) is revnet.RevNet:
-        #     model.free()
+        model.free()
 
-        _, predicted = torch.max(outputs.data, 1)
+        _, predicted = torch.max(likelihoods.data, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum()
 
