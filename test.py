@@ -74,14 +74,14 @@ for i in range(10):
     print(data[:,i].min(), data[:,i].max())
     _, indices = torch.sort(data[:,i].squeeze())
 
-    imshow(torchvision.utils.make_grid(images[indices][9800:]))
+    imshow(torchvision.utils.make_grid(images[indices][::50]))
     plt.savefig('sorted{}.svg'.format(i),bbox_inches='tight')
 
 for i in range(10,15):
     print(data[:,i].min(), data[:,i].max())
     _, indices = torch.sort(data[:,i].squeeze())
 
-    imshow(torchvision.utils.make_grid(images[indices][::100]))
+    imshow(torchvision.utils.make_grid(images[indices][::50]))
     plt.savefig('sorted{}.svg'.format(i),bbox_inches='tight')
 
 seed = torch.rand(1,16*7*7)
@@ -107,5 +107,5 @@ for i in range(15):
     print(trans[:,i].min(), trans[:,i].max())
     indices = np.argsort(trans[:,i])
 
-    imshow(torchvision.utils.make_grid(images[torch.Tensor(indices).long()][9800:]))
+    imshow(torchvision.utils.make_grid(images[torch.Tensor(indices).long()][::50]))
     plt.savefig('sorted_pca{}.svg'.format(i),bbox_inches='tight')
