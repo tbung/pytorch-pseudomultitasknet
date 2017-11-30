@@ -48,24 +48,24 @@ images, labels = dataiter.next()
 
 # save originals
 imshow(torchvision.utils.make_grid(images))
-plt.savefig('originals.pdf')
+plt.savefig('originals.svg')
 
 # generate and look at feature space
 m = train_mnist.main()
 out = m.no_class_forward(Variable(images).cuda())
 out2 = unsqueeze(unsqueeze(out))
 imshow(torchvision.utils.make_grid(out2.cpu().data))
-plt.savefig('featurespace.pdf')
+plt.savefig('featurespace.svg')
 
 # invert net, regenerate input
 out3 = m.generate(out)
 imshow(torchvision.utils.make_grid(out3.cpu()))
-plt.savefig('regenerated.pdf')
+plt.savefig('regenerated.svg')
 
 dataiter_pca = iter(trainloader_pca)
 images, labels = dataiter_pca.next()
-imshow(torchvision.utils.make_grid(images))
-plt.savefig('originals_pca.pdf')
+imshow(torchvision.utils.make_grid(images[:5]))
+plt.savefig('originals_pca.svg')
 data = m.no_class_forward(Variable(images).cuda()).cpu().data
 
 data = data.view(data.size(0), -1)
@@ -74,21 +74,21 @@ for i in range(10):
     _, indices = torch.sort(data[:,i].squeeze())
 
     imshow(torchvision.utils.make_grid(images[indices][9800:]))
-    plt.savefig('sorted{}.pdf'.format(i))
+    plt.savefig('sorted{}.svg'.format(i))
 
 for i in range(10,15):
     print(data[:,i].min(), data[:,i].max())
     _, indices = torch.sort(data[:,i].squeeze())
 
     imshow(torchvision.utils.make_grid(images[indices][::100]))
-    plt.savefig('sorted{}.pdf'.format(i))
+    plt.savefig('sorted{}.svg'.format(i))
 
 seed = torch.rand(1,16*7*7)
 seed[0,0] = 100
 seed[0,1:10] = -10
 seed = seed.view(1,16,7,7)
 imshow(torchvision.utils.make_grid(m.generate(Variable(seed).cuda()).cpu()))
-plt.savefig('generated.pdf')
+plt.savefig('generated.svg')
 
 pca = PCA(15)
 pca.fit(data)
@@ -100,11 +100,11 @@ regenerated = pca.inverse_transform(trans[:5])
 regenerated.shape = -1, 16, 7, 7
 regenerated = m.generate(torch.Tensor(regenerated).cuda())
 imshow(torchvision.utils.make_grid(regenerated.cpu()))
-plt.savefig('pca.pdf')
+plt.savefig('pca.svg')
 
 for i in range(15):
     print(trans[:,i].min(), trans[:,i].max())
     indices = np.argsort(trans[:,i])
 
     imshow(torchvision.utils.make_grid(images[torch.Tensor(indices).long()][9800:]))
-    plt.savefig('sorted_pca{}.pdf'.format(i))
+    plt.savefig('sorted_pca{}.svg'.format(i))

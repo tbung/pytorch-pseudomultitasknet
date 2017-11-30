@@ -1,6 +1,7 @@
 data
 experiments
 *.pdf
+*.svg
 
 # Created by https://www.gitignore.io/api/vim,python
 
