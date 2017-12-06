@@ -1,5 +1,5 @@
-import train_mnist
-from modules.reversible import ReversibleMultiTaskNet
+from pseudomultitasklearning import train_mnist
+from pseudomultitasklearning.modules.reversible import ReversibleMultiTaskNet
 
 import torch
 

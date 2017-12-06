@@ -17,8 +17,8 @@ import torchvision.transforms as transforms
 from torch.autograd import Variable
 from torch.optim.lr_scheduler import StepLR
 
-from modules.naive_bayes import GaussianNaiveBayes
-from modules.reversible import ReversibleMultiTaskNet
+from .modules.naive_bayes import GaussianNaiveBayes
+from .modules.reversible import ReversibleMultiTaskNet
 
 class NaiveBayesNet(nn.Module):
     def __init__(self):
