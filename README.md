@@ -9,6 +9,14 @@ single network. Includes a reversible and thereby generative model.
 - tqdm
 - numpy
 
+## Running in a pytorch docker container
+
+Just in case I ever forget or someone else wants to run this without worries.
+
+```
+docker run --runtime=nvidia -it -v $(pwd):/workspace pytorch_cuda9:latest zsh
+```
+
 ## TODO
 
 - [ ] Add generative side loss
