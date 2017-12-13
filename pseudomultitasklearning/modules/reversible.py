@@ -19,11 +19,11 @@ class ReversibleMultiTaskNet(nn.Module):
         self.activations = []
 
         self.revblock2 = RevBlock(4, 4, self.activations, unsqueeze=True)
-        self.revblock21 = RevBlock(4, 4, self.activations)
-        self.revblock22 = RevBlock(4, 4, self.activations)
+        self.revblock21 = RevBlock(4, 4, self.activations, dilation=2)
+        self.revblock22 = RevBlock(4, 4, self.activations, dilation=2)
         self.revblock3 = RevBlock(16, 16, self.activations, unsqueeze=True)
-        self.revblock31 = RevBlock(16, 16, self.activations)
-        self.revblock32 = RevBlock(16, 16, self.activations)
+        self.revblock31 = RevBlock(16, 16, self.activations, dilation=2)
+        self.revblock32 = RevBlock(16, 16, self.activations, dilation=2)
 
         self.nb  = GaussianNaiveBayes(16*7*7,10)
         self.nm  = NearestMean(16*7*7,10)

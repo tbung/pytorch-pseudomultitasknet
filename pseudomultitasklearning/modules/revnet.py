@@ -51,7 +51,7 @@ def possible_downsample(x, in_channels, out_channels, stride=1):
 
 
 def residual(x, in_channels, out_channels, params, buffers, training, stride=1,
-             no_activation=False):
+             no_activation=False, dilation=1):
     """
     Basic pre-activation residual block in functional form
     """
@@ -62,12 +62,14 @@ def residual(x, in_channels, out_channels, params, buffers, training, stride=1,
                            params[1], training)
         out = F.relu(out)
 
-    out = F.conv2d(out, params[-6], params[-5], stride, padding=1)
+    out = F.conv2d(out, params[-6], params[-5], stride, padding=dilation,
+                   dilation=dilation)
 
     out = F.batch_norm(out, buffers[-2], buffers[-1], params[-4],
                        params[-3], training)
     out = F.relu(out)
-    out = F.conv2d(out, params[-2], params[-1], stride=1, padding=1)
+    out = F.conv2d(out, params[-2], params[-1], stride=1, padding=dilation,
+                   dilation=dilation)
 
     return out
 
@@ -76,7 +78,7 @@ class RevBlockFunction(Function):
     @staticmethod
     def _inner(x, in_channels, out_channels, training, stride,
                f_params, f_buffs, g_params, g_buffs, manual_grads=True,
-               no_activation=False):
+               no_activation=False, dilation=1):
 
         x1, x2 = torch.chunk(x, 2, dim=1)
 
@@ -92,12 +94,13 @@ class RevBlockFunction(Function):
         x2_ = possible_downsample(x2, in_channels, out_channels, stride)
 
         f_x2 = residual(x2, in_channels, out_channels, f_params, f_buffs,
-                        training, stride=stride, no_activation=no_activation)
+                        training, stride=stride, no_activation=no_activation,
+                        dilation=dilation)
 
         y1 = f_x2 + x1_
 
         g_y1 = residual(y1, out_channels, out_channels, g_params, g_buffs,
-                        training)
+                        training, dilation=dilation)
 
         y2 = g_y1 + x2_
 
@@ -110,7 +113,7 @@ class RevBlockFunction(Function):
 
     @staticmethod
     def _inner_backward(output, in_channels, out_channels, training,
-                        no_activation, *args):
+                        no_activation, *args, dilation=1):
 
         if not no_activation:
             f_params = args[:8]
@@ -131,9 +134,9 @@ class RevBlockFunction(Function):
             y1 = Variable(y1.data, volatile=True).contiguous()
             y2 = Variable(y2.data, volatile=True).contiguous()
         x2 = y2 - residual(y1, out_channels, out_channels, g_params, g_buffs,
-                           training=training)
+                           training=training, dilation=dilation)
         x1 = y1 - residual(x2, in_channels, out_channels, f_params, f_buffs,
-                           training=training)
+                           training=training, dilation=dilation)
         del y1, y2
         x1, x2 = x1.data, x2.data
 
@@ -143,7 +146,7 @@ class RevBlockFunction(Function):
     @staticmethod
     def _inner_grad(x, dy, in_channels, out_channels, training, stride,
                     activations, f_params, f_buffs, g_params, g_buffs,
-                    no_activation=False, unsqueeze=False):
+                    no_activation=False, unsqueeze=False, dilation=1):
         dy1, dy2 = Variable.chunk(dy, 2, dim=1)
 
         x1, x2 = torch.chunk(x, 2, dim=1)
@@ -160,12 +163,12 @@ class RevBlockFunction(Function):
 
         f_x2 = residual(x2, in_channels, out_channels, f_params, f_buffs,
                         training=training, stride=stride,
-                        no_activation=no_activation)
+                        no_activation=no_activation, dilation=dilation)
 
         y1_ = f_x2 + x1_
 
         g_y1 = residual(y1_, out_channels, out_channels, g_params, g_buffs,
-                        training=training)
+                        training=training, dilation=dilation)
         y2_ = g_y1 + x2_
 
         dd1 = torch.autograd.grad(y2_, (y1_,) + tuple(g_params), dy2,
@@ -195,7 +198,8 @@ class RevBlockFunction(Function):
 
     @staticmethod
     def forward(ctx, x, in_channels, out_channels,
-                training, stride, no_activation, unsqueeze, activations, *args):
+                training, stride, no_activation, unsqueeze, activations,
+                dilation, *args):
 
         if not no_activation:
             f_params = [Variable(x) for x in args[:8]]
@@ -232,6 +236,7 @@ class RevBlockFunction(Function):
         ctx.in_channels = in_channels
         ctx.out_channels = out_channels
         ctx.unsqueeze = unsqueeze
+        ctx.dilation = dilation
 
         y = RevBlockFunction._inner(
             x,
@@ -241,7 +246,8 @@ class RevBlockFunction(Function):
             stride,
             f_params, f_buffs,
             g_params, g_buffs,
-            no_activation=no_activation
+            no_activation=no_activation,
+            dilation=dilation
         )
 
         return y.data
@@ -272,7 +278,8 @@ class RevBlockFunction(Function):
                 ctx.training,
                 ctx.no_activation,
                 *f_params, *g_params,
-                *ctx.f_buffs, *ctx.g_buffs
+                *ctx.f_buffs, *ctx.g_buffs,
+                dilation=ctx.dilation
             )
 
         dx, dfw, dgw = RevBlockFunction._inner_grad(
@@ -286,18 +293,19 @@ class RevBlockFunction(Function):
             f_params, ctx.f_buffs,
             g_params, ctx.g_buffs,
             no_activation=ctx.no_activation,
-            unsqueeze=ctx.unsqueeze
+            unsqueeze=ctx.unsqueeze,
+            dilation=ctx.dilation
         )
 
         num_buffs = 2 if ctx.no_activation else 4
 
-        return ((dx, None, None, None, None, None, None, None) + tuple(dfw) +
+        return ((dx, None, None, None, None, None, None, None, None) + tuple(dfw) +
                 tuple(dgw) + tuple([None]*num_buffs) + tuple([None]*4))
 
 
 class RevBlock(nn.Module):
     def __init__(self, in_channels, out_channels, activations, stride=1,
-                 no_activation=False, unsqueeze=False):
+                 no_activation=False, unsqueeze=False, dilation=1):
         super(self.__class__, self).__init__()
 
         self.in_channels = in_channels // 2
@@ -305,6 +313,7 @@ class RevBlock(nn.Module):
         self.stride = stride
         self.no_activation = no_activation
         self.unsqueeze = unsqueeze
+        self.dilation = dilation
         self.activations = activations
 
         if not no_activation:
@@ -446,7 +455,8 @@ class RevBlock(nn.Module):
             self.training,
             self.no_activation,
             *self._parameters.values(),
-            *self._buffers.values()
+            *self._buffers.values(),
+            dilation=self.dilation
         )
 
 
@@ -460,6 +470,7 @@ class RevBlock(nn.Module):
             self.no_activation,
             self.unsqueeze,
             self.activations,
+            self.dilation,
             *self._parameters.values(),
             *self._buffers.values()
         )
