@@ -65,8 +65,9 @@ class ReversibleMultiTaskNet(nn.Module):
         out = out.view(out.size(0), -1)
         prob_nb = torch.exp(self.nb(out))
         prob_nm = torch.exp(self.sm(self.nm(out)))
+        U, _, _ = torch.svd(out)
 
         out = out[:,:10]
         
         prob_sm = torch.exp(self.sm(out))
-        return prob_nb, prob_sm, prob_nm
+        return prob_nb, prob_sm, prob_nm, U

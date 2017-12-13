@@ -17,8 +17,8 @@ import torchvision.transforms as transforms
 from torch.autograd import Variable
 from torch.optim.lr_scheduler import StepLR
 
-from .modules.naive_bayes import GaussianNaiveBayes
-from .modules.reversible import ReversibleMultiTaskNet
+from pseudomultitasklearning.modules.naive_bayes import GaussianNaiveBayes
+from pseudomultitasklearning.modules.reversible import ReversibleMultiTaskNet
 
 
 parser = argparse.ArgumentParser()
@@ -143,7 +143,7 @@ def main():
     return model
 
 
-def load_mnist(batch_size, shuffle=True, train=False):
+def load_mnist(batch_size, shuffle=True, train=False, num_workers=2):
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
@@ -157,7 +157,7 @@ def load_mnist(batch_size, shuffle=True, train=False):
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle, num_workers=2
+        shuffle=shuffle, num_workers=num_workers
     )
 
     return dataloader
@@ -185,8 +185,9 @@ def train(epoch, model, criterion, optimizer, trainloader, clip, trainer):
         outputs = model(inputs)
         likelihoods = torch.log((outputs[0]+outputs[1]+outputs[2])/3)
         disagreement = torch.sum(torch.abs(outputs[0] - outputs[1]))
+        sparsity = torch.norm(outputs[3], 1)
 
-        loss =  criterion(likelihoods, labels) + 1*disagreement
+        loss =  criterion(likelihoods, labels) + 1*disagreement + 0.0001*sparsity
         if np.isnan(loss.data[0]):
             raise ValueError("NaN Loss")
         loss.backward()
