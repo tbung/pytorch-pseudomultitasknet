@@ -12,5 +12,8 @@ single network. Includes a reversible and thereby generative model.
 ## TODO
 
 - [ ] Add generative side loss
-- [ ] Take a look at interpolation between samples
+- [x] Take a look at interpolation between samples
 - [ ] Further improve net architecture
+- [ ] Noise regularization
+- [ ] SVD sparsity loss
+- [ ] Learning by assoziation
