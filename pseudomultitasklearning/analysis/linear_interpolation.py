@@ -9,13 +9,15 @@ import torchvision.transforms as transforms
 
 from torch.autograd import Variable
 
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
 
 # Prepare data
 
-dataloader = train.load_mnist(10000, shuffle=False, train=False)
+dataloader = train.load_mnist(10000, shuffle=False, train=False, num_workers=0)
 
 dataiter = iter(dataloader)
 images, labels = dataiter.next()
