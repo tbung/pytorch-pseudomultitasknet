@@ -17,9 +17,12 @@ import torchvision.transforms as transforms
 from torch.autograd import Variable
 from torch.optim.lr_scheduler import StepLR
 
+from pytorch_fft.fft.autograd import Rfft2d
+
 from pseudomultitasklearning.modules.naive_bayes import GaussianNaiveBayes
 from pseudomultitasklearning.modules.reversible import ReversibleMultiTaskNet
 
+from pseudomultitasklearning import visualize
 
 parser = argparse.ArgumentParser()
 # parser.add_argument("--model", metavar="NAME",
@@ -50,6 +53,8 @@ parser.add_argument("--loss", default="NLLLoss",
 CUDA = torch.cuda.is_available()
 
 best_acc = 0
+
+fft = Rfft2d()
 
 
 def main():
@@ -86,6 +91,9 @@ def main():
     optimizer = optim.SGD(model.parameters(), lr=args.lr*10,
                           momentum=0.9, weight_decay=args.weight_decay)
 
+    optimizer2 = optim.SGD(model.parameters(), lr=0.0001,
+                          momentum=0.9, weight_decay=args.weight_decay)
+
     scheduler = StepLR(optimizer, step_size=args.epochs//3, gamma=0.1)
 
     print("Prepairing data...")
@@ -111,6 +119,9 @@ def main():
         loss, train_acc = train(epoch, model, criterion, optimizer,
                                 trainloader, args.clip, trainer)
         val_acc = validate(model, valloader)
+
+        # train_backwards(epoch, model, criterion, optimizer2,
+        #                 trainloader, args.clip, trainer)
 
         if val_acc > best_acc:
             best_acc = val_acc
@@ -209,6 +220,64 @@ def train(epoch, model, criterion, optimizer, trainloader, clip, trainer):
                       acc='{:2.1f}%'.format(acc).ljust(6))
 
     return train_loss, acc
+
+def train_backwards(epoch, model, criterion, optimizer, trainloader, clip, trainer):
+    model.train()
+    # train_loss = 0
+    # correct = 0
+    # total = 0
+    t = tqdm(trainloader, ascii=True, desc='{}'.format(epoch).rjust(3))
+    for i, data in enumerate(t):
+        inputs, labels = data
+
+        if CUDA:
+            inputs, labels = inputs.cuda(), labels.cuda()
+
+        ones = inputs.index_select(0, torch.nonzero(labels == 1).squeeze())
+
+        idx = torch.LongTensor(2).random_(0, ones.size(0)).cuda()
+
+        samples = ones.index_select(0, idx)
+
+        inputs, labels = Variable(samples), Variable(labels)
+
+        outputs = model.no_class_forward(inputs)
+
+        optimizer.zero_grad()
+
+        regenerated = torch.cat(fft(model.generate(outputs)), dim=1)
+
+        loss = torch.norm(regenerated, 1)
+
+        if np.isnan(loss.data[0]):
+            raise ValueError("NaN Loss")
+
+        # graph = visualize.make_dot(loss)
+        # graph.format = 'svg'
+        # graph.render(view=False)
+        # break
+
+        loss.backward()
+
+        # Free the memory used to store activations
+        model.free()
+
+        if clip > 0:
+            torch.nn.utils.clip_grad_norm(model.parameters(), clip)
+
+        optimizer.step()
+
+        # train_loss += loss.data[0]
+        # _, predicted = torch.max(likelihoods.data, 1)
+        # total += labels.size(0)
+        # correct += predicted.eq(labels.data).cpu().sum()
+        # acc = 100 * correct / total
+
+        # t.set_postfix(loss='{:.3f}'.format(train_loss/(i+1)).ljust(3),
+        #               acc='{:2.1f}%'.format(acc).ljust(6))
+
+    # return train_loss, acc
+
 
 
 def validate(model, valloader):
