@@ -1,9 +1,22 @@
 data
 experiments
-*.pdf
-*.svg
 
-# Created by https://www.gitignore.io/api/vim,python
+# Created by https://www.gitignore.io/api/python,vim,linux
+
+### Linux ###
+*~
+
+# temporary files which can be created if a process still has a handle open of a deleted file
+.fuse_hidden*
+
+# KDE directory preferences
+.directory
+
+# Linux trash folder which might appear on any partition or disk
+.Trash-*
+
+# .nfs files are created when an open file is removed but is still being accessed
+.nfs*
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
@@ -81,7 +94,7 @@ target/
 .python-version
 
 # celery beat schedule file
-celerybeat-schedule
+celerybeat-schedule.*
 
 # SageMath parsed files
 *.sage.py
@@ -110,16 +123,14 @@ venv.bak/
 
 ### Vim ###
 # swap
-[._]*.s[a-v][a-z]
-[._]*.sw[a-p]
-[._]s[a-v][a-z]
-[._]sw[a-p]
+.sw[a-p]
+.*.sw[a-p]
 # session
 Session.vim
 # temporary
 .netrwhist
-*~
 # auto-generated tag files
 tags
 
-# End of https://www.gitignore.io/api/vim,python
+
+# End of https://www.gitignore.io/api/python,vim,linux

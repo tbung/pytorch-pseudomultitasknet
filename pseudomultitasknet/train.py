@@ -17,12 +17,9 @@ import torchvision.transforms as transforms
 from torch.autograd import Variable
 from torch.optim.lr_scheduler import StepLR
 
-from pytorch_fft.fft.autograd import Rfft2d
+# from pytorch_fft.fft.autograd import Rfft2d
 
-from pseudomultitasklearning.modules.naive_bayes import GaussianNaiveBayes
-from pseudomultitasklearning.modules.reversible import ReversibleMultiTaskNet
-
-from pseudomultitasklearning import visualize
+from pseudomultitasknet import PseudoMultiTaskNet
 
 parser = argparse.ArgumentParser()
 # parser.add_argument("--model", metavar="NAME",
@@ -33,7 +30,7 @@ parser.add_argument("-e", "--evaluate", action="store_true",
                     help="evaluate model on validation set")
 parser.add_argument("--batch-size", default=256, type=int,
                     help="size of the mini-batches")
-parser.add_argument("--epochs", default=100, type=int,
+parser.add_argument("--epochs", default=50, type=int,
                     help="number of epochs")
 parser.add_argument("--lr", default=0.1, type=float,
                     help="initial learning rate")
@@ -54,7 +51,7 @@ CUDA = torch.cuda.is_available()
 
 best_acc = 0
 
-fft = Rfft2d()
+# fft = Rfft2d()
 
 
 def main():
@@ -62,7 +59,7 @@ def main():
 
     args = parser.parse_args()
 
-    model = ReversibleMultiTaskNet()
+    model = PseudoMultiTaskNet()
 
     exp_id = "mnist_{0}_{1:%Y-%m-%d}_{1:%H-%M-%S}".format(model.name,
                                                           datetime.now())
@@ -74,8 +71,8 @@ def main():
     with open(path, 'w') as f:
         f.write(' '.join(sys.argv))
 
-    if CUDA:
-        model.cuda()
+    # if CUDA:
+    model.cuda(0)
 
     if args.load is not None:
         load(model, args.load)
@@ -91,7 +88,7 @@ def main():
     optimizer = optim.SGD(model.parameters(), lr=args.lr*10,
                           momentum=0.9, weight_decay=args.weight_decay)
 
-    optimizer2 = optim.SGD(model.parameters(), lr=0.0001,
+    optimizer2 = optim.SGD(model.parameters(), lr=1e-4,
                           momentum=0.9, weight_decay=args.weight_decay)
 
     scheduler = StepLR(optimizer, step_size=args.epochs//3, gamma=0.1)
@@ -198,7 +195,7 @@ def train(epoch, model, criterion, optimizer, trainloader, clip, trainer):
         disagreement = torch.sum(torch.abs(outputs[0] - outputs[1]))
         sparsity = torch.norm(outputs[3], 1)
 
-        loss =  criterion(likelihoods, labels) + 1*disagreement + 0.0001*sparsity
+        loss =  criterion(likelihoods, labels) + 0.01*disagreement + 0.0001*sparsity
         if np.isnan(loss.data[0]):
             raise ValueError("NaN Loss")
         loss.backward()
@@ -231,23 +228,17 @@ def train_backwards(epoch, model, criterion, optimizer, trainloader, clip, train
         inputs, labels = data
 
         if CUDA:
-            inputs, labels = inputs.cuda(), labels.cuda()
+            inputs, labels = Variable(inputs).cuda(), Variable(labels).cuda()
 
-        ones = inputs.index_select(0, torch.nonzero(labels == 1).squeeze())
-
-        idx = torch.LongTensor(2).random_(0, ones.size(0)).cuda()
-
-        samples = ones.index_select(0, idx)
-
-        inputs, labels = Variable(samples), Variable(labels)
-
-        outputs = model.no_class_forward(inputs)
+        # outputs = model.no_class_forward(inputs)
+        outputs = model.orthogonal_forward(inputs)
 
         optimizer.zero_grad()
 
-        regenerated = torch.cat(fft(model.generate(outputs)), dim=1)
+        # regenerated = torch.cat(fft(model.generate(outputs)), dim=1)
+        regenerated = model.generate(outputs)
 
-        loss = torch.norm(regenerated, 1)
+        loss = F.l1_loss(inputs, regenerated)
 
         if np.isnan(loss.data[0]):
             raise ValueError("NaN Loss")
