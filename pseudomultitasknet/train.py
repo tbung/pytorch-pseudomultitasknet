@@ -20,6 +20,7 @@ from torch.optim.lr_scheduler import StepLR
 # from pytorch_fft.fft.autograd import Rfft2d
 
 from pseudomultitasknet import PseudoMultiTaskNet
+import augmnist
 
 parser = argparse.ArgumentParser()
 # parser.add_argument("--model", metavar="NAME",
@@ -30,7 +31,7 @@ parser.add_argument("-e", "--evaluate", action="store_true",
                     help="evaluate model on validation set")
 parser.add_argument("--batch-size", default=256, type=int,
                     help="size of the mini-batches")
-parser.add_argument("--epochs", default=50, type=int,
+parser.add_argument("--epochs", default=10, type=int,
                     help="number of epochs")
 parser.add_argument("--lr", default=0.1, type=float,
                     help="initial learning rate")
@@ -64,7 +65,7 @@ def main():
     exp_id = "mnist_{0}_{1:%Y-%m-%d}_{1:%H-%M-%S}".format(model.name,
                                                           datetime.now())
 
-    path = os.path.join("./experiments/", exp_id, "cmd.sh")
+    path = os.path.join("./saves/", exp_id, "cmd.sh")
     if not os.path.exists(os.path.dirname(path)):
             os.makedirs(os.path.dirname(path))
 
@@ -88,7 +89,7 @@ def main():
     optimizer = optim.SGD(model.parameters(), lr=args.lr*10,
                           momentum=0.9, weight_decay=args.weight_decay)
 
-    optimizer2 = optim.SGD(model.parameters(), lr=1e-4,
+    optimizer2 = optim.SGD(model.parameters(), lr=1e-6,
                           momentum=0.9, weight_decay=args.weight_decay)
 
     scheduler = StepLR(optimizer, step_size=args.epochs//3, gamma=0.1)
@@ -98,6 +99,8 @@ def main():
     # Load data
     trainloader = load_mnist(args.batch_size, train=True)
     valloader = load_mnist(args.batch_size, train=False)
+    aug_bs = 16
+    augloader =  load_augmented(aug_bs)
 
     if args.evaluate:
         print("\nEvaluating model...")
@@ -117,8 +120,8 @@ def main():
                                 trainloader, args.clip, trainer)
         val_acc = validate(model, valloader)
 
-        # train_backwards(epoch, model, criterion, optimizer2,
-        #                 trainloader, args.clip, trainer)
+        train_augmented(epoch, model, criterion, optimizer2,
+                        augloader, aug_bs, args.clip, trainer)
 
         if val_acc > best_acc:
             best_acc = val_acc
@@ -166,6 +169,27 @@ def load_mnist(batch_size, shuffle=True, train=False, num_workers=2):
         dataset,
         batch_size=batch_size,
         shuffle=shuffle, num_workers=num_workers
+    )
+
+    return dataloader
+
+def load_augmented(batch_size, num_workers=2):
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+
+    dataset = augmnist.AugMNIST(
+        batch_size=batch_size,
+        download=False,
+        generate=True,
+        transform=transform
+    )
+
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False, num_workers=num_workers
     )
 
     return dataloader
@@ -258,18 +282,44 @@ def train_backwards(epoch, model, criterion, optimizer, trainloader, clip, train
 
         optimizer.step()
 
-        # train_loss += loss.data[0]
-        # _, predicted = torch.max(likelihoods.data, 1)
-        # total += labels.size(0)
-        # correct += predicted.eq(labels.data).cpu().sum()
-        # acc = 100 * correct / total
 
-        # t.set_postfix(loss='{:.3f}'.format(train_loss/(i+1)).ljust(3),
-        #               acc='{:2.1f}%'.format(acc).ljust(6))
+def train_augmented(epoch, model, criterion, optimizer, trainloader, batch_size, clip, trainer):
+    model.train()
+    t = tqdm(trainloader, ascii=True, desc='{}'.format(epoch).rjust(3))
+    for i, inputs in enumerate(t):
+        if CUDA:
+            inputs = Variable(inputs).cuda()
 
-    # return train_loss, acc
+        outputs = model.inversible_forward(
+            torch.stack((inputs[0], inputs[-1]), dim=0)
+        )
 
+        steps = np.linspace(0, 1, 16)
+        interpolation = torch.stack([(1-t)*outputs.data[0]+t*outputs.data[1] for t in steps], dim=0)
 
+        generated = model.generate(Variable(interpolation.cuda()))
+
+        optimizer.zero_grad()
+
+        loss = F.l1_loss(inputs, generated)
+
+        if np.isnan(loss.data[0]):
+            raise ValueError("NaN Loss")
+
+        # graph = visualize.make_dot(loss)
+        # graph.format = 'svg'
+        # graph.render(view=False)
+        # break
+
+        loss.backward()
+
+        # Free the memory used to store activations
+        model.free()
+
+        if clip > 0:
+            torch.nn.utils.clip_grad_norm(model.parameters(), clip)
+
+        optimizer.step()
 
 def validate(model, valloader):
     correct = 0
