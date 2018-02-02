@@ -31,7 +31,7 @@ parser.add_argument("-e", "--evaluate", action="store_true",
                     help="evaluate model on validation set")
 parser.add_argument("--batch-size", default=256, type=int,
                     help="size of the mini-batches")
-parser.add_argument("--epochs", default=10, type=int,
+parser.add_argument("--epochs", default=50, type=int,
                     help="number of epochs")
 parser.add_argument("--lr", default=0.1, type=float,
                     help="initial learning rate")
@@ -89,7 +89,7 @@ def main():
     optimizer = optim.SGD(model.parameters(), lr=args.lr*10,
                           momentum=0.9, weight_decay=args.weight_decay)
 
-    optimizer2 = optim.SGD(model.parameters(), lr=1e-6,
+    optimizer2 = optim.SGD(model.parameters(), lr=1e-4,
                           momentum=0.9, weight_decay=args.weight_decay)
 
     scheduler = StepLR(optimizer, step_size=args.epochs//3, gamma=0.1)
@@ -301,7 +301,7 @@ def train_augmented(epoch, model, criterion, optimizer, trainloader, batch_size,
 
         optimizer.zero_grad()
 
-        loss = F.l1_loss(inputs, generated)
+        loss = F.l1_loss(F.pad(inputs, (2,2,2,2)), generated)
 
         if np.isnan(loss.data[0]):
             raise ValueError("NaN Loss")

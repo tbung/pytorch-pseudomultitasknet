@@ -83,7 +83,11 @@ class PseudoMultiTaskNet(nn.Module):
         return out, S, V
 
     def generate(self, y):
-        x = self.revblock32.inverse_forward(y)
+        x = self.revblock42.inverse_forward(y)
+        x = self.revblock41.inverse_forward(x)
+        x = self.revblock4.inverse_forward(x)
+        x = unsqueeze(x)
+        x = self.revblock32.inverse_forward(x)
         x = self.revblock31.inverse_forward(x)
         x = self.revblock3.inverse_forward(x)
         x = unsqueeze(x)
