@@ -1,2 +1,2 @@
 from .pseudomultitasknet import *
-from . import train, modules
+from . import modules

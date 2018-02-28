@@ -17,7 +17,7 @@ from torch.optim.lr_scheduler import StepLR
 from ignite.trainer import Trainer
 from ignite.evaluator import create_supervised_evaluator
 from ignite.engine import Events
-from ignite.handlers.logging import log_training_simple_moving_average
+# from ignite.handlers.logging import log_training_simple_moving_average
 from ignite._utils import to_variable
 
 from pseudomultitasknet import PseudoMultiTaskNet
@@ -55,20 +55,21 @@ def create_supervised_trainer(model, optimizer, loss_fn, cuda=False):
         loss.backward()
         optimizer.step()
         y_pred = torch.log((outputs[0]+outputs[1]+outputs[2])/3)
-        return loss.data.cpu()[0], y_pred, y
+        return loss.data.cpu().item(), y_pred, y
 
     return Trainer(_update)
 
-def get_accuracy(trainer, window_size, transform=lambda x: x):
-    y_preds, ys = zip(*map(transform, trainer.history[-window_size:]))
+def get_accuracy(history, window_size, transform=lambda x: x):
+    y_preds, ys = zip(*map(transform, history[-window_size:]))
     y_pred = torch.cat(y_preds, dim=0)
     y = torch.cat(ys, dim=0)
     indices = torch.max(y_pred, 1)[1]
     correct = torch.eq(indices, y)
-    return torch.mean(correct.type(torch.FloatTensor)).numpy()[0]
+    return torch.mean(correct.type(torch.FloatTensor)).numpy()
 
-def get_loss(trainer, window_size, transform=lambda x: x):
-    return trainer.history.simple_moving_average(window_size, transform)
+def get_loss(history, window_size, transform=lambda x: x):
+    loss = list(map(transform, history[-window_size:]))
+    return np.mean(loss)
 
 def save_checkpoint(model, exp_id):
     path = base_path / exp_id / "checkpoints"
@@ -91,6 +92,7 @@ class MNISTTraining(Experiment):
         self.weight_decay = 1e-5
         self.step_size = 3
         self.gamma = 0.1
+        self.history = []
 
         def loss(outputs, labels):
             likelihoods = torch.log((outputs[0]+outputs[1]+outputs[2])/3)
@@ -119,19 +121,21 @@ class MNISTTraining(Experiment):
         self.trainer = create_supervised_trainer(self.model, self.optimizer, loss,
                                                  cuda=CUDA)
 
-    def on_epoch_started(self, trainer):
+    def on_epoch_started(self, state, trainer):
         self.scheduler.step()
         self.progress = tqdm(total=len(self.trainloader))
+        del self.history[:]
 
-    def on_epoch_completed(self, trainer):
+    def on_epoch_completed(self, state, trainer):
         # self.evaluator.run(self.valloader)
         save_checkpoint(self.model, self.name)
         self.progress.close()
 
-    def on_iteration_completed(self, trainer):
+    def on_iteration_completed(self, _, state):
         self.model.free()
         self.progress.update()
-        acc = get_accuracy(trainer, self.batch_size, transform=lambda x: x[1:])
+        self.history.append(state.output)
+        acc = get_accuracy(self.history, self.batch_size, transform=lambda x: x[1:])
         self.progress.set_postfix(
             acc=f"{acc*100:.3}%"
         )

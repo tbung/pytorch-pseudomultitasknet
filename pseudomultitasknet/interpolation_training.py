@@ -36,15 +36,17 @@ class InterpolationTraining(MNISTTraining):
 
         self.aug_trainer = Trainer(self.update)
 
-        def on_aug_epoch_started(trainer):
+        def on_aug_epoch_started(_, state):
+            del self.history[:]
             self.progress = tqdm(total=len(self.augloader))
 
-        def on_aug_epoch_completed(trainer):
+        def on_aug_epoch_completed(_, state):
             self.progress.close()
 
-        def on_aug_iteration_completed(trainer):
+        def on_aug_iteration_completed(_, state):
             self.progress.update()
-            loss = get_loss(trainer, self.aug_batch_size)
+            self.history.append(state.output)
+            loss = get_loss(self.history, self.aug_batch_size)
             self.progress.set_postfix(
                 loss=f"{loss:.3}"
             )
@@ -64,15 +66,16 @@ class InterpolationTraining(MNISTTraining):
             on_aug_iteration_completed
         )
 
-    def on_epoch_completed(self, trainer):
-        super(InterpolationTraining, self).on_epoch_completed(trainer)
+    def on_epoch_completed(self, _, state):
+        super(InterpolationTraining, self).on_epoch_completed(_, state)
         self.aug_trainer.run(self.augloader)
 
     def interpolation(self, outputs):
         steps = np.linspace(0, 1, 16)
         return torch.stack([(1-t)*outputs.data[0]+t*outputs.data[1] for t in steps], dim=0)
 
-    def update(self, inputs):
+    def update(self, batch):
+        inputs, targets = batch
         if CUDA:
             inputs = Variable(inputs).cuda()
 
@@ -95,7 +98,7 @@ class InterpolationTraining(MNISTTraining):
 
         self.aug_optimizer.step()
 
-        return loss.cpu().data[0]
+        return loss.cpu().data.item()
 
 if __name__ == "__main__":
     experiment = InterpolationTraining()
