@@ -1,4 +1,4 @@
-from pseudomultitasknet import train
+from pseudomultitasknet.data import load_mnist
 from pseudomultitasknet.utils import imshow
 from pseudomultitasknet import PseudoMultiTaskNet
 
@@ -17,7 +17,7 @@ import numpy as np
 
 # Prepare data
 
-dataloader = train.load_mnist(10000, shuffle=False, train=False, num_workers=0)
+dataloader = load_mnist(10000, shuffle=False, train=False, num_workers=0)
 
 dataiter = iter(dataloader)
 images, labels = dataiter.next()
