@@ -20,9 +20,10 @@ CUDA = torch.cuda.is_available()
 
 class InterpolationBatchTraining(MNISTTraining):
     def __init__(self):
-        super(InterpolationTraining, self).__init__()
+        super(InterpolationBatchTraining, self).__init__()
 
         self.aug_batch_size = 16
+        self.batch_size = 8*self.aug_batch_size
         self.aug_lr = 1e-4
 
         self.aug_optimizer = optim.SGD(
@@ -32,38 +33,79 @@ class InterpolationBatchTraining(MNISTTraining):
             weight_decay=self.weight_decay
         )
 
-        self.augloader = load_augmented(self.aug_batch_size)
+        self.augloader = load_augmented(self.batch_size, self.aug_batch_size)
+        self.trainer = create_supervised_trainer()
 
 
-    def interpolation(self, outputs):
+def create_supervised_trainer(model, optimizer, aug_optimizer, loss_fn, cuda=False):
+    """
+    Factory function for creating a trainer for supervised models
+    Args:
+        model (torch.nn.Module): the model to train
+        optimizer (torch.optim.Optimizer): the optimizer to use
+        loss_fn (torch.nn loss function): the loss function to use
+        cuda (bool, optional): whether or not to transfer batch to GPU (default: False)
+    Returns:
+        Trainer: a trainer instance with supervised update function
+    """
+    def _interpolation(outputs):
         steps = np.linspace(0, 1, 16)
-        return torch.stack([(1-t)*outputs.data[0]+t*outputs.data[1] for t in steps], dim=0)
 
-    def update(self, batch):
-        inputs, targets = batch
-        if CUDA:
-            inputs = Variable(inputs).cuda()
+        def generate_interpolation():
+            for i in range(outputs.size(0), step=2):
+                for t in steps:
+                    yield (1-t)*outputs.data[i]+t*outputs.data[i+1]
 
-        outputs = self.model.inversible_forward(
-            torch.stack((inputs[0], inputs[-1]), dim=0)
+        return torch.stack(
+            list(generate_interpolation()),
+            dim=0
         )
 
-        interpolation = self.interpolation(outputs)
+    def _prepare_batch(batch):
+        x, y = batch
+        x = to_variable(x, cuda=cuda)
+        y = to_variable(y, cuda=cuda)
+        return x, y
 
-        generated = self.model.generate(Variable(interpolation.cuda()))
+    def _update(batch):
+        model.train()
+        optimizer.zero_grad()
+        x, y = _prepare_batch(batch)
+        outputs = model(x)
+        loss_forw = loss_fn(outputs, y)
+        loss_forw.backward()
+        optimizer.step()
+        y_pred = torch.log((outputs[0]+outputs[1]+outputs[2])/3)
 
-        self.aug_optimizer.zero_grad()
+        def generate_endpoints():
+            for i in range(x.size(0), step=16):
+                yield x[i]
+                yield x[i+15]
 
-        loss = F.l1_loss(F.pad(inputs, (2,2,2,2)), generated)
+        outputs = model.inversible_forward(
+            torch.stack(list(generate_endpoints()), dim=0)
+        )
 
-        loss.backward()
+        interpolation = _interpolation(outputs)
+
+        generated = model.generate(Variable(interpolation.cuda()))
+
+        aug_optimizer.zero_grad()
+
+        loss_back = F.l1_loss(F.pad(inputs, (2,2,2,2)), generated)
+
+        loss_back.backward()
 
         # Free the memory used to store activations
-        self.model.free()
+        model.free()
 
-        self.aug_optimizer.step()
+        aug_optimizer.step()
 
-        return loss.cpu().data.item()
+        return (loss_back.data.cpu().item(), loss_forw.data.cpu().item(),
+                y_pred, y)
+
+    return Trainer(_update)
+
 
 if __name__ == "__main__":
     experiment = InterpolationTraining()
