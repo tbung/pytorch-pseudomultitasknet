@@ -135,7 +135,7 @@ class MNISTTraining(Experiment):
         self.model.free()
         self.progress.update()
         self.history.append(state.output)
-        acc = get_accuracy(self.history, self.batch_size, transform=lambda x: x[1:])
+        acc = get_accuracy(self.history, self.batch_size, transform=lambda x: x[-2:])
         self.progress.set_postfix(
             acc=f"{acc*100:.3}%"
         )
