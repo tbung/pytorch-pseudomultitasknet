@@ -27,9 +27,11 @@ def unsqueeze(x, factor=2):
 
 
 class PseudoMultiTaskNet(nn.Module):
-    def __init__(self):
+    def __init__(self, no_svd=False):
         super(self.__class__, self).__init__()
         self.name = 'ReversibleMultiTaskNet'
+
+        self.no_svd = no_svd
 
         self.activations = []
 
@@ -51,7 +53,13 @@ class PseudoMultiTaskNet(nn.Module):
                                             storage_hooks=[unsqueeze],
                                             no_activation=True)
         self.revblock41 = BidirectionalBlock(64, 64, self.activations)
-        self.revblock42 = BidirectionalBlock(64, 64, self.activations)
+        self.revblock42 = BidirectionalBlock(64, 64, self.activations,
+                                             inverse_hooks=[squeeze])
+        self.revblock5 = BidirectionalBlock(256, 256, self.activations,
+                                            storage_hooks=[unsqueeze],
+                                            no_activation=True)
+        self.revblock51 = BidirectionalBlock(256, 256, self.activations)
+        self.revblock52 = BidirectionalBlock(256, 256, self.activations)
 
         self.size = 32*32
 
@@ -73,6 +81,10 @@ class PseudoMultiTaskNet(nn.Module):
         out = self.revblock4(out)
         out = self.revblock41(out)
         out = self.revblock42(out)
+        out = squeeze(out)
+        out = self.revblock5(out)
+        out = self.revblock51(out)
+        out = self.revblock52(out)
 
         return out
 
@@ -83,7 +95,11 @@ class PseudoMultiTaskNet(nn.Module):
         return out, S, V
 
     def generate(self, y):
-        x = self.revblock42.inverse_forward(y)
+        x = self.revblock52.inverse_forward(y)
+        x = self.revblock51.inverse_forward(x)
+        x = self.revblock5.inverse_forward(x)
+        x = unsqueeze(x)
+        x = self.revblock42.inverse_forward(x)
         x = self.revblock41.inverse_forward(x)
         x = self.revblock4.inverse_forward(x)
         x = unsqueeze(x)
@@ -113,7 +129,10 @@ class PseudoMultiTaskNet(nn.Module):
         out = self.inversible_forward(x)
         self.activations.append(out.data)
         out = out.view(out.size(0), -1)
-        _, S, V = self.orthogonal(out)
+        if not self.no_svd:
+            _, S, V = self.orthogonal(out)
+        else:
+            S = None
         prob_nb = torch.exp(self.nb(out))
         prob_nm = torch.exp(self.sm(self.nm(out)))
 

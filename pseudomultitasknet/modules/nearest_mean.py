@@ -15,7 +15,7 @@ class NearestMean(nn.Module):
             "means",
             nn.Parameter(torch.Tensor(self.classes, self.features))
         )
-        
+
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -28,5 +28,4 @@ class NearestMean(nn.Module):
                 (x - self.means)**2, dim=-1
             )
         )
-        return ((dist - torch.max(dist, -1, True)[0]) == 0).float()
-
+        return ((dist - torch.min(dist, -1, True)[0]) == 0).float()

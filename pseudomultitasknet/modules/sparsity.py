@@ -6,32 +6,40 @@ class SparsityFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, Q, tau):
         Y = Q.matmul(x.t()).t()
+        K = Y.size(0)
 
-        ctx.save_for_backward(Y, Q)
         ctx.tau = tau
 
-        return torch.norm(Y, 1)
+        loss = 1/K * torch.norm(Y, 1)
+        ctx.save_for_backward(x, Y, Q)
+        return loss
 
     @staticmethod
     def backward(ctx, dy):
-        Y, Q = ctx.saved_variables
+        x, Y, Q = ctx.saved_variables
         t = ctx.tau
 
         K = Y.size(0)
-        one = torch.eye(2*K, 2*K)
+        one = torch.eye(2*K, 2*K).cuda()
 
-        U = torch.cat((Y.sign()/(2*K), -Y))
-        V_t = torch.cat((Y, Y.sign()/(2*K))).t()
+        U = torch.cat((Y.sign()/(2*K), -Y)).t()
+        V_t = torch.cat((Y, Y.sign()/(2*K)))
 
-        dQ = 2 * t * U.matmul((one + t * V_t.matmul(U)).inverse()).matmul(V_t).matmul(Q)
+        dQ_ = 2 * t * U.matmul((one + t * V_t.matmul(U)).inverse()).matmul(V_t)
+        dQ = dQ_.matmul(Q)
 
-        dx = Q.matmul(dy.t()).t()
+        with torch.enable_grad():
+            x_ = torch.autograd.Variable(x.data, requires_grad=True)
+            y_ = x_.matmul(Q)
+            loss = 1/K * torch.norm(y_, 1)
+            dx = torch.autograd.grad(loss, x_, dy)[0]
 
         return dx, dQ, None
 
 
 class SparsityBlock(nn.Module):
     def __init__(self, size, tau):
+        super(SparsityBlock, self).__init__()
         self.tau = tau
 
         self.register_parameter(
