@@ -1,9 +1,8 @@
 data
 saves
-runs
+old
 *.png
 *.pdf
-*.dat
 
 
 # Created by https://www.gitignore.io/api/python,vim,linux
