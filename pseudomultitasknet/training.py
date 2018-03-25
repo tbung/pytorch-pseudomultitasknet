@@ -16,8 +16,8 @@ from ignite._utils import to_variable
 
 from tqdm import tqdm
 
-from pseudomultitasknet import PseudoMultiTaskNet, PseudoMultiTaskNetCifar
-from pseudomultitasknet.data import load_mnist, load_augmented, load_cifar10
+from pseudomultitasknet import PseudoMultiTaskNet
+from pseudomultitasknet.data import load_mnist
 
 CUDA = torch.cuda.is_available()
 
