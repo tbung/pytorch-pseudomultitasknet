@@ -63,7 +63,7 @@ def load_augmented(batch_size, interpolation_size, num_workers=2):
 
     dataset = augmnist.AugMNIST(
         batch_size=interpolation_size,
-        download=False,
+        download=True,
         generate=True,
         transform=transform
     )

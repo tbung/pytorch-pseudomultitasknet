@@ -2,6 +2,8 @@ from pathlib import Path
 from datetime import datetime
 from functools import partial
 
+import json
+
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -16,8 +18,9 @@ from ignite._utils import to_variable
 
 from tqdm import tqdm
 
-from pseudomultitasknet import PseudoMultiTaskNet
+from pseudomultitasknet import PseudoMultiTaskNet, PseudoMultiTaskNetMult
 from pseudomultitasknet.data import load_mnist
+from revnet import revnet18
 
 CUDA = torch.cuda.is_available()
 
@@ -69,13 +72,15 @@ def _prepare_batch(batch):
     return x, y
 
 
-def process_batch_classification(x, y, model, loss_fn, optimizer):
+def process_batch_classification(x, y, model, loss_fn, optimizer, clip=None):
     optimizer.zero_grad()
     outputs = model(x)
     loss, y_pred = loss_fn(outputs, y)
     loss.backward()
     # Free the memory used to store activations
     model.free()
+    if clip:
+        torch.nn.utils.clip_grad_norm(model.parameters(), clip)
     optimizer.step()
 
     correct = y.eq(y_pred).float().sum()
@@ -83,7 +88,7 @@ def process_batch_classification(x, y, model, loss_fn, optimizer):
     return loss, correct
 
 
-def process_batch_interpolation(x, y, model, loss_fn, optimizer):
+def process_batch_interpolation(x, y, model, loss_fn, optimizer, clip=None):
     # T = np.linspace(-0.5, 0.5, 16)
 
     # def generate_interpolation():
@@ -116,6 +121,9 @@ def process_batch_interpolation(x, y, model, loss_fn, optimizer):
 
     # Free the memory used to store activations
     model.free()
+
+    if clip:
+        torch.nn.utils.clip_grad_norm(model.parameters(), clip)
 
     optimizer.step()
 
@@ -278,7 +286,7 @@ class TrainingSoftMax:
         self.lr = 0.1
         self.momentum = 0.9
         self.weight_decay = 1e-5
-        self.step_size = self.epochs//3
+        self.step_size = np.ceil(self.epochs/3)
         self.gamma = 0.1
 
         def loss(outputs, labels):
@@ -318,7 +326,7 @@ class TrainingSoftMax:
         )
         self.epoch_args["aug_scheduler"] = StepLR(
             self.epoch_args["aug_optimizer"],
-            step_size=self.epochs//2,
+            step_size=np.ceil(self.epochs/2),
             gamma=self.gamma
         )
 
@@ -341,10 +349,125 @@ class TrainingSoftMax:
         train(self)
 
 
+class TrainingMult:
+    def __init__(self):
+        # self.name = "class_sp_inter_ba"
+        self.name = "class_sp_inter_ba_mult_long"
+        self.model = PseudoMultiTaskNetMult()
+        if CUDA:
+            self.model.cuda(0)
+        self.writer = SummaryWriter()
+        self.epoch_function = epoch_mixed
+        self.epoch_args = {}
+        self.epochs = 50
+        # self.lr = 0.1
+        self.lr = 1e-3
+        self.momentum = 0.9
+        self.weight_decay = 1e-4
+        self.step_size = self.epochs//3
+        self.gamma = 0.1
+
+        def loss(outputs, labels):
+            likelihoods = torch.log((outputs[0]+outputs[1]+outputs[2])/3)
+            disagreement = torch.sum(torch.abs(outputs[0] - outputs[1]))
+            sparsity = torch.norm(outputs[3], 1)
+            _, y_pred = torch.max(likelihoods.data, 1)
+
+            return (F.nll_loss(likelihoods, labels)
+                    + 0.01*disagreement
+                    + 0.0001*sparsity,
+                    y_pred)
+
+        self.epoch_args["loss_fn"] = loss
+        self.epoch_args["aug_loss_fn"] = lambda x,y: F.l1_loss(F.pad(x, (2, 2, 2, 2)),y)
+
+        self.epoch_args["optimizer"] = optim.SGD(
+            self.model.parameters(),
+            lr=10*self.lr,
+            momentum=self.momentum,
+            weight_decay=self.weight_decay
+        )
+
+        self.epoch_args["scheduler"] = StepLR(self.epoch_args["optimizer"],
+                                              step_size=self.step_size,
+                                              gamma=self.gamma)
+
+        self.aug_batch_size = 16
+        self.batch_size = 16*self.aug_batch_size
+        # self.aug_lr = 0.01
+        self.aug_lr = 1e-3
+
+        self.epoch_args["aug_optimizer"] = optim.SGD(
+            self.model.parameters(),
+            lr=10*self.aug_lr,
+            momentum=self.momentum,
+            weight_decay=self.weight_decay
+        )
+        self.epoch_args["aug_scheduler"] = StepLR(
+            self.epoch_args["aug_optimizer"],
+            step_size=self.epochs//4,
+            gamma=self.gamma
+        )
+
+        # self.train_loader = load_augmented(self.batch_size,
+        #                                    self.aug_batch_size)
+        self.train_loader = load_mnist(self.batch_size, train=True)
+        self.val_loader = load_mnist(self.batch_size, train=False)
+
+        for key, value in self.__dict__.items():
+            self.writer.add_text(f"config/{key}", str(value))
+
+    def pred_fn(self, outputs):
+        likelihoods = torch.log((outputs[0]+outputs[1]+outputs[2])/3)
+        _, y_pred = torch.max(likelihoods.data, 1)
+        return y_pred
+
+    def __call__(self):
+        for key, value in self.__dict__.items():
+            self.writer.add_text(f"config/{key}", str(value))
+        train(self)
+
+
+class TrainingSM(TrainingSoftMax):
+    def __init__(self):
+        super(TrainingSM, self).__init__()
+        # self.name = "sm_nb"
+        self.name = "sm"
+        self.model = PseudoMultiTaskNet(no_svd=True)
+        if CUDA:
+            self.model.cuda(0)
+
+        self.lr = 0.01
+
+        self.epoch_args["optimizer"] = optim.SGD(
+            self.model.parameters(),
+            lr=10*self.lr,
+            momentum=self.momentum,
+            weight_decay=self.weight_decay
+        )
+
+        self.epoch_args["scheduler"] = StepLR(self.epoch_args["optimizer"],
+                                              step_size=self.step_size,
+                                              gamma=self.gamma)
+
+        def loss(outputs, labels):
+            likelihoods = torch.log(outputs[1])
+            _, y_pred = torch.max(likelihoods.data, 1)
+
+            return (F.nll_loss(likelihoods, labels),
+                    y_pred)
+
+        self.epoch_args["loss_fn"] = loss
+        self.epoch_function = epoch_classification
+        del self.epoch_args["aug_loss_fn"]
+        del self.epoch_args["aug_optimizer"]
+        del self.epoch_args["aug_scheduler"]
+
 class TrainingSMNB(TrainingSoftMax):
     def __init__(self):
         super(TrainingSMNB, self).__init__()
-        self.name = "sm_nb"
+        # self.name = "sm_nb"
+        self.name = "sm_nb_small"
         self.model = PseudoMultiTaskNet(no_svd=True)
         if CUDA:
             self.model.cuda(0)
@@ -418,7 +541,8 @@ class TrainingSMNBNM(TrainingSoftMax):
 class TrainingClassSP(TrainingSoftMax):
     def __init__(self):
         super(TrainingClassSP, self).__init__()
-        self.name = "class_sp"
+        # self.name = "class_sp"
+        self.name = "class_sp_small"
         self.epoch_function = epoch_classification
         del self.epoch_args["aug_loss_fn"]
         del self.epoch_args["aug_optimizer"]
@@ -428,7 +552,8 @@ class TrainingClassSP(TrainingSoftMax):
 class TrainingClassInter(TrainingSoftMax):
     def __init__(self):
         super(TrainingClassInter, self).__init__()
-        self.name = "class_inter"
+        # self.name = "class_inter"
+        self.name = "class_inter_small"
         self.model = PseudoMultiTaskNet(no_svd=True)
         if CUDA:
             self.model.cuda(0)
@@ -474,7 +599,8 @@ class TrainingClassInter(TrainingSoftMax):
 class TrainingClassSPInter(TrainingSoftMax):
     def __init__(self):
         super(TrainingClassSPInter, self).__init__()
-        self.name = "class_sp_inter"
+        # self.name = "class_sp_inter"
+        self.name = "class_sp_inter_small"
 
         self.aug_lr = 1e-5
 
@@ -496,7 +622,8 @@ class TrainingClassSPInter(TrainingSoftMax):
 class TrainingClassInterBA(TrainingSoftMax):
     def __init__(self):
         super(TrainingClassInterBA, self).__init__()
-        self.name = "class_inter_ba"
+        # self.name = "class_inter_ba"
+        self.name = "class_inter_ba_small"
         self.model = PseudoMultiTaskNet(no_svd=True)
         if CUDA:
             self.model.cuda(0)
@@ -537,10 +664,68 @@ class TrainingClassInterBA(TrainingSoftMax):
         self.epoch_args["loss_fn"] = loss
 
 
+class TrainingLong(TrainingSoftMax):
+    def __init__(self):
+        super(TrainingLong, self).__init__()
+        self.name = "class_sp_inter_ba_long"
+        self.epochs = 50
+        self.step_size = np.ceil(self.epochs/3)
+        self.epoch_args["scheduler"] = StepLR(self.epoch_args["optimizer"],
+                                              step_size=self.step_size,
+                                              gamma=self.gamma)
+        self.epoch_args["aug_scheduler"] = StepLR(
+            self.epoch_args["aug_optimizer"],
+            step_size=np.ceil(self.epochs/2),
+            gamma=self.gamma
+        )
+
+
+class TrainingRevNet(TrainingSoftMax):
+    def __init__(self):
+        super(TrainingRevNet, self).__init__()
+        # self.name = "sm_nb"
+        self.name = "revnet"
+        self.model = revnet18()
+        if CUDA:
+            self.model.cuda(0)
+
+        self.lr = 0.1
+
+        self.epoch_args["optimizer"] = optim.SGD(
+            self.model.parameters(),
+            lr=10*self.lr,
+            momentum=self.momentum,
+            weight_decay=self.weight_decay
+        )
+
+        self.epoch_args["scheduler"] = StepLR(self.epoch_args["optimizer"],
+                                              step_size=self.step_size,
+                                              gamma=self.gamma)
+
+        def loss(outputs, labels):
+            _, y_pred = torch.max(outputs.data, 1)
+            return F.cross_entropy(outputs, labels), y_pred
+
+        self.epoch_args["loss_fn"] = loss
+        self.epoch_function = epoch_classification
+        del self.epoch_args["aug_loss_fn"]
+        del self.epoch_args["aug_optimizer"]
+        del self.epoch_args["aug_scheduler"]
+
+    def pred_fn(self, outputs):
+        _, y_pred = torch.max(outputs.data, 1)
+        return y_pred
+
+
 if __name__ == "__main__":
-    training = TrainingClassInterBA()
+    training = TrainingSM()
+    print(training.name)
     training()
     path = Path(training.writer.file_writer.get_logdir())
     path /= "records.json"
     training.writer.export_scalars_to_json(path)
     training.writer.close()
+    with open(path, "r+") as f:
+        obj = json.load(f)
+        obj["name"] = training.name
+        json.dump(obj, f)
